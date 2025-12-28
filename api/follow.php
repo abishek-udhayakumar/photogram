@@ -17,21 +17,21 @@ if ($follower_id == $following_id) {
     exit;
 }
 
-// Check state
-$stmt = $pdo->prepare("SELECT id FROM follows WHERE follower_id = ? AND following_id = ?");
-$stmt->execute([$follower_id, $following_id]);
-$following = $stmt->fetch();
-
-if ($following) {
-    // Unfollow
-    $stmt = $pdo->prepare("DELETE FROM follows WHERE follower_id = ? AND following_id = ?");
-    $stmt->execute([$follower_id, $following_id]);
-    $action = 'unfollowed';
-} else {
-    // Follow
+// Atomic Toggle Logic
+try {
+    // Try to Follow
     $stmt = $pdo->prepare("INSERT INTO follows (follower_id, following_id) VALUES (?, ?)");
     $stmt->execute([$follower_id, $following_id]);
     $action = 'followed';
+} catch (PDOException $e) {
+    if ($e->errorInfo[1] == 1062) {
+        // Already following -> Unfollow
+        $stmt = $pdo->prepare("DELETE FROM follows WHERE follower_id = ? AND following_id = ?");
+        $stmt->execute([$follower_id, $following_id]);
+        $action = 'unfollowed';
+    } else {
+        throw $e;
+    }
 }
 
 echo json_encode(['status' => 'success', 'action' => $action]);

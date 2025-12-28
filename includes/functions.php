@@ -11,21 +11,24 @@ function time_elapsed_string($datetime, $full = false)
     $ago = new DateTime($datetime);
     $diff = $now->diff($ago);
 
-    $diff->w = floor($diff->d / 7);
-    $diff->d -= $diff->w * 7;
+    // Calculate weeks manually since DateInterval doesn't have 'w' property
+    $weeks = floor($diff->d / 7);
+    $days = $diff->d - ($weeks * 7);
 
+    // Map for values
     $string = array(
-        'y' => 'year',
-        'm' => 'month',
-        'w' => 'week',
-        'd' => 'day',
-        'h' => 'hour',
-        'i' => 'minute',
-        's' => 'second',
+        'y' => ['val' => $diff->y, 'unit' => 'year'],
+        'm' => ['val' => $diff->m, 'unit' => 'month'],
+        'w' => ['val' => $weeks, 'unit' => 'week'],
+        'd' => ['val' => $days, 'unit' => 'day'],
+        'h' => ['val' => $diff->h, 'unit' => 'hour'],
+        'i' => ['val' => $diff->i, 'unit' => 'minute'],
+        's' => ['val' => $diff->s, 'unit' => 'second'],
     );
+
     foreach ($string as $k => &$v) {
-        if ($diff->$k) {
-            $v = $diff->$k . ' ' . $v . ($diff->$k > 1 ? 's' : '');
+        if ($v['val']) {
+            $v = $v['val'] . ' ' . $v['unit'] . ($v['val'] > 1 ? 's' : '');
         } else {
             unset($string[$k]);
         }

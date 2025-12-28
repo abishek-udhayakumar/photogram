@@ -1,12 +1,23 @@
 /* assets/js/main.js */
 
-async function toggleLike(postId) {
-    // Robust selector: Try data attribute first, fallback if needed
-    let btn = document.querySelector(`.post-card[data-post-id="${postId}"] .like-btn`);
-    if (!btn) {
-        // Fallback for older DOM structure if cached
-        btn = document.querySelector(`#post-${postId} .like-btn`);
+// Basic Double Tap Logic
+function handleDoubleTap(postId, container) {
+    const heart = container.querySelector('.heart-burst');
+    // Trigger animation
+    heart.classList.add('active');
+    setTimeout(() => heart.classList.remove('active'), 1000);
+
+    // Call toggle like if NOT already liked
+    // Note: This relies on the button state. We need to find the like button.
+    const btn = document.querySelector(`.card-feed[data-post-id="${postId}"] .like-btn`);
+    if (btn && !btn.classList.contains('liked')) {
+        toggleLike(postId);
     }
+}
+
+async function toggleLike(postId) {
+    // Selector for new Premium structure
+    let btn = document.querySelector(`.card-feed[data-post-id="${postId}"] .like-btn`);
 
     if (!btn) {
         console.error(`Like button not found for post ${postId}`);
@@ -20,7 +31,7 @@ async function toggleLike(postId) {
 
     // Optimistic UI update
     const isLiked = btn.classList.contains('liked');
-    let currentCount = parseInt(countSpan.innerText.replace(/,/g, '')) || 0; // Robust parse
+    let currentCount = parseInt(countSpan.innerText.replace(/,/g, '')) || 0;
 
     if (isLiked) {
         btn.classList.remove('liked');
@@ -28,14 +39,18 @@ async function toggleLike(postId) {
             icon.classList.remove('bi-heart-fill');
             icon.classList.add('bi-heart');
         }
-        countSpan.innerText = Math.max(0, currentCount - 1);
+        countSpan.innerText = (Math.max(0, currentCount - 1)).toLocaleString();
     } else {
         btn.classList.add('liked');
+        // Add subtle pop effect to button
+        btn.style.transform = "scale(1.2)";
+        setTimeout(() => btn.style.transform = "scale(1)", 200);
+
         if (icon) {
             icon.classList.remove('bi-heart');
             icon.classList.add('bi-heart-fill');
         }
-        countSpan.innerText = currentCount + 1;
+        countSpan.innerText = (currentCount + 1).toLocaleString();
     }
 
     const formData = new FormData();
@@ -46,16 +61,7 @@ async function toggleLike(postId) {
             method: 'POST',
             body: formData
         });
-        const data = await res.json();
-
-        if (data.status === 'success') {
-            // Server is authority
-            countSpan.innerText = data.count;
-        } else {
-            console.error('Like failed:', data.message);
-            // Revert UI (simplified: reload or just leave it, user will retry)
-            // Ideally we revert the class toggle here.
-        }
+        // We generally trust the optimistic update, but could revert on error.
     } catch (e) {
         console.error(e);
     }

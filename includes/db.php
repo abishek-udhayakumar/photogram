@@ -1,20 +1,16 @@
 <?php
 // includes/db.php
-
-$host = 'localhost';
-$db_name = 'photogram_db';
-$username = 'abishek07';
-$password = 'Hacker$007'; // Default for local dev, change as needed
+require_once __DIR__ . '/config.php';
 
 try {
-    $pdo = new PDO("mysql:host=$host", $username, $password);
+    $pdo = new PDO("mysql:host=" . DB_HOST, DB_USER, DB_PASS);
     // Set the PDO error mode to exception
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
     // Create database if not exists
-    $pdo->exec("CREATE DATABASE IF NOT EXISTS `$db_name`");
-    $pdo->exec("USE `$db_name`");
+    $pdo->exec("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "`");
+    $pdo->exec("USE `" . DB_NAME . "`");
 
 } catch (PDOException $e) {
     die("ERROR: Could not connect. " . $e->getMessage());

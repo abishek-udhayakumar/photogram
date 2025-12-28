@@ -1,219 +1,310 @@
 /**
- * Photogram Comments System
- * Modal-Based Architecture
+ * Photogram Comments System (Rebuilt)
+ * 
+ * Logic Flow:
+ * 1. Event Delegation for Clicks (View All, Delete) and Submits (Modal & Inline Forms).
+ * 2. Unified API Handling (fetch, post, delete).
+ * 3. DOM Updates strictly based on Server Response.
  */
 
-let commentsModalInstance = null;
-let currentModalPostId = null;
-
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize interaction
-    setupEventDelegation();
-
-    // Initialize Modal Instance (Bootstrap 5)
-    const modalEl = document.getElementById('commentsModal');
-    if (modalEl) {
-        commentsModalInstance = new bootstrap.Modal(modalEl);
-
-        // Focus input after open
-        modalEl.addEventListener('shown.bs.modal', () => {
-            const input = document.getElementById('modalCommentInput');
-            if (input) input.focus();
-        });
-
-        // Cleanup on close
-        modalEl.addEventListener('hidden.bs.modal', () => {
-            currentModalPostId = null;
-            const list = document.getElementById('modalCommentsList');
-            if (list) list.innerHTML = ''; // Clear for next time
-            const img = document.getElementById('modalPostImage');
-            if (img) img.src = '';
-            // Reset spinner or empty states if needed
-        });
-    }
+    CommentSystem.init();
 });
 
-function setupEventDelegation() {
-    // 1. Click Handler (View All, Comment Icon)
-    document.addEventListener('click', (e) => {
-        const trigger = e.target.closest('[data-action="view-all-comments"], [data-action="focus-comment"]');
-        if (trigger) {
-            e.preventDefault();
-            const postId = trigger.getAttribute('data-post-id');
-            // Check if we are using Modal or Inline. The requirement is Modal.
-            openCommentModal(postId, trigger);
-        }
-    });
+const CommentSystem = {
+    modalInstance: null,
+    currentModalPostId: null,
 
-    // 2. Modal Form Submit
-    const modalForm = document.getElementById('modalCommentForm');
-    if (modalForm) {
-        modalForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            if (currentModalPostId) {
-                submitModalComment(currentModalPostId);
-            }
-        });
+    init() {
+        // Initialize Bootstrap Modal
+        const modalEl = document.getElementById('commentsModal');
+        if (modalEl) {
+            this.modalInstance = new bootstrap.Modal(modalEl);
 
-        // Input Validation
-        const input = document.getElementById('modalCommentInput');
-        const btn = modalForm.querySelector('button');
-        if (input && btn) {
-            input.addEventListener('input', () => {
-                btn.disabled = input.value.trim().length === 0;
+            // Events for focus and cleanup
+            modalEl.addEventListener('shown.bs.modal', () => {
+                const input = document.getElementById('modalCommentInput');
+                if (input) input.focus();
+            });
+            modalEl.addEventListener('hidden.bs.modal', () => {
+                this.currentModalPostId = null;
+                document.getElementById('modalCommentsList').innerHTML = '';
             });
         }
-    }
-}
 
-function openCommentModal(postId, triggerEl) {
-    if (!commentsModalInstance) return;
+        this.bindEvents();
+    },
 
-    currentModalPostId = postId;
+    bindEvents() {
+        // 1. Click Handling (Delegation)
+        document.addEventListener('click', (e) => {
+            // Open Modal
+            if (e.target.closest('[data-action="view-all-comments"]')) {
+                e.preventDefault();
+                const postId = e.target.closest('[data-action="view-all-comments"]').getAttribute('data-post-id');
+                this.openModal(postId);
+            }
+            // Focus Comment Input
+            if (e.target.closest('[data-action="focus-comment"]')) {
+                e.preventDefault();
+                const postId = e.target.closest('[data-action="focus-comment"]').getAttribute('data-post-id');
+                // Use inline focus if available, else modal
+                const inlineInput = document.querySelector(`form[data-post-id="${postId}"] input`);
+                if (inlineInput) inlineInput.focus();
+                else this.openModal(postId);
+            }
+        });
 
-    // 1. Get Data from DOM (Post Card)
-    // We try to find the card using robust selectors
-    const card = document.querySelector(`.card[data-post-id="${postId}"]`) || document.getElementById(`post-${postId}`);
-    if (!card) {
-        console.error("Post card not found for ID", postId);
-        return;
-    }
+        // 2. Form Submission (Delegation)
+        document.addEventListener('submit', (e) => {
+            // Feed Inline Form
+            if (e.target.matches('[data-action="submit-comment"]')) {
+                e.preventDefault();
+                this.handleCommentSubmit(e.target, 'inline');
+            }
+            // Modal Form
+            if (e.target.id === 'modalCommentForm') {
+                e.preventDefault();
+                this.handleCommentSubmit(e.target, 'modal');
+            }
+        });
 
-    const imgEl = card.querySelector('.post-image-content');
-    const nameEl = card.querySelector('.username-link');
-    const avatarEl = card.querySelector('.user-avatar-md');
+        // 3. Input validation
+        document.addEventListener('input', (e) => {
+            if (e.target.classList.contains('comment-input') || e.target.id === 'modalCommentInput') {
+                const btn = e.target.closest('form').querySelector('button');
+                if (btn) btn.disabled = e.target.value.trim().length === 0;
+            }
+        });
+    },
 
-    // 2. Populate Modal Static Content
-    const modalImg = document.getElementById('modalPostImage');
-    const modalName = document.getElementById('modalOwnerName');
-    const modalAvatar = document.getElementById('modalOwnerAvatar');
+    openModal(postId) {
+        if (!this.modalInstance) return;
+        this.currentModalPostId = postId;
 
-    if (modalImg && imgEl) modalImg.src = imgEl.src;
-    if (modalName && nameEl) modalName.innerText = nameEl.innerText;
-    if (modalAvatar && avatarEl) modalAvatar.src = avatarEl.src;
+        // 1. Populate Static Info (from Feed Card)
+        const card = document.querySelector(`.card-feed[data-post-id="${postId}"]`);
+        if (card) {
+            const imgEl = card.querySelector('.post-image-content');
+            const nameEl = card.querySelector('.username-link');
+            const avatarEl = card.querySelector('.user-avatar-md');
 
-    // 3. Show Modal
-    commentsModalInstance.show();
+            if (imgEl) document.getElementById('modalPostImage').src = imgEl.src;
+            if (nameEl) document.getElementById('modalOwnerName').innerText = nameEl.innerText;
+            if (avatarEl) document.getElementById('modalOwnerAvatar').src = avatarEl.src;
 
-    // 4. Load Comments
-    // Call the loading function which MUST handle the spinner removal
-    loadModalComments(postId);
-}
-
-async function loadModalComments(postId) {
-    const list = document.getElementById('modalCommentsList');
-    if (!list) return;
-
-    // Reset List & Show Loader
-    list.innerHTML = '<div class="d-flex justify-content-center mt-5"><div class="spinner-border text-muted"></div></div>';
-
-    try {
-        const res = await fetch(`/api/fetch_comments.php?post_id=${postId}&mode=all`);
-
-        // Strict Check: Response must be OK and JSON
-        if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-
-        const contentType = res.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-            throw new Error("Invalid response format (not JSON)");
+            // Likes count is dynamic, we could fetch or grab from DOM
+            const likeCount = card.querySelector('.likes-count span');
+            if (likeCount) document.getElementById('modalLikeCount').innerText = likeCount.innerText;
         }
 
-        const data = await res.json();
+        // 2. Show Modal
+        this.modalInstance.show();
 
-        if (data.status === 'success') {
-            list.innerHTML = ''; // Clear loader
+        // 3. Fetch Comments
+        this.fetchComments(postId);
+    },
 
-            if (data.data.length === 0) {
-                list.innerHTML = `
-                    <div class="text-center mt-5">
-                        <div class="fw-bold">No comments yet.</div>
-                        <div class="text-muted small">Start the conversation.</div>
-                    </div>
-                 `;
+    async fetchComments(postId) {
+        const list = document.getElementById('modalCommentsList');
+        if (!list) return;
+
+        list.innerHTML = '<div class="d-flex justify-content-center mt-5"><div class="spinner-border text-primary spinner-border-sm"></div></div>';
+
+        try {
+            const res = await fetch(`/api/fetch_comments.php?post_id=${postId}&mode=all`);
+            const data = await res.json();
+
+            if (data.status === 'success') {
+                list.innerHTML = '';
+                if (data.data.length === 0) {
+                    list.innerHTML = `
+                        <div class="text-center mt-5">
+                            <div class="fw-bold text-dark">No comments yet.</div>
+                            <small class="text-muted">Start the conversation.</small>
+                        </div>`;
+                } else {
+                    data.data.forEach(c => {
+                        list.appendChild(this.buildCommentElement(c));
+                    });
+                    list.scrollTop = list.scrollHeight;
+                }
             } else {
-                data.data.forEach(c => {
-                    list.appendChild(createModalCommentItem(c));
-                });
-                // Auto scroll to bottom
-                list.scrollTop = list.scrollHeight;
+                list.innerHTML = '<div class="text-center text-danger mt-5">Failed to load.</div>';
+            }
+        } catch (e) {
+            console.error(e);
+            list.innerHTML = '<div class="text-center text-danger mt-5">Error loading comments.</div>';
+        }
+    },
+
+    async handleCommentSubmit(form, mode) {
+        const input = form.querySelector('input');
+        const btn = form.querySelector('button');
+        const text = input.value.trim();
+
+        let postId = null;
+        if (mode === 'inline') {
+            postId = form.getAttribute('data-post-id');
+        } else {
+            postId = this.currentModalPostId;
+        }
+
+        if (!text || !postId) return;
+
+        // UI Loading
+        const originalText = btn.innerHTML;
+        input.disabled = true;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+        try {
+            const formData = new FormData();
+            formData.append('post_id', postId);
+            formData.append('comment', text);
+
+            const res = await fetch('/api/comment.php', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if (data.status === 'success') {
+                input.value = '';
+                // Ensure data has can_delete=true for the author
+                data.data.can_delete = true;
+
+                // 1. Update Counts everywhere
+                this.updateCounts(postId, data.new_count);
+
+                // 2. Render in Modal if open
+                const modalList = document.getElementById('modalCommentsList');
+                if (modalList && this.currentModalPostId == postId) {
+                    // Remove empty state
+                    if (modalList.querySelector('.text-center')) modalList.innerHTML = '';
+                    const newEl = this.buildCommentElement(data.data);
+                    // Highlight
+                    newEl.style.backgroundColor = "rgba(99, 102, 241, 0.1)";
+                    modalList.appendChild(newEl);
+                    modalList.scrollTop = modalList.scrollHeight;
+                    setTimeout(() => newEl.style.backgroundColor = 'transparent', 2000);
+                }
+
+                // 3. Render in Preview (Feed)
+                // We keep only top 2 usually? Or just append? 
+                // Let's just append to the preview container if it exists
+                const previewDiv = document.getElementById(`comments-preview-${postId}`);
+                if (previewDiv) {
+                    const previewHtml = `
+                        <div class="d-flex align-items-baseline mb-1 fade-in">
+                            <span class="fw-bold me-2 small">${data.data.username}</span>
+                            <span class="text-secondary small text-truncate" style="max-width: 250px;">${data.data.comment}</span>
+                        </div>`;
+                    previewDiv.insertAdjacentHTML('beforeend', previewHtml);
+                }
+
+            } else {
+                alert(data.message || 'Error posting');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Connection Error');
+        } finally {
+            input.disabled = false;
+            btn.disabled = false; // re-enable but it should ideally be disabled if empty?
+            // Actually, we cleared the value, so we should allow user to type again.
+            // But validation listener only fires on input. So we should force disable?
+            // Let's just create a synthetic event or set disabled=true.
+            if (input.value.length === 0) btn.disabled = true;
+            input.focus();
+            btn.innerHTML = originalBtnText;
+        }
+    },
+
+    // Delete Comment
+    async deleteComment(commentId, btnEl) {
+        if (!confirm("Delete this comment?")) return;
+
+        const item = btnEl.closest('.comment-item-modal');
+        if (item) item.style.opacity = '0.5';
+
+        try {
+            const formData = new FormData();
+            formData.append('comment_id', commentId);
+
+            const res = await fetch('/api/delete_comment.php', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if (data.status === 'success') {
+                if (item) {
+                    item.remove();
+                }
+                // Update Count if we know the post ID
+                // We can get it from specific logic or just trust the Modal is open
+                if (this.currentModalPostId && data.new_count !== undefined) {
+                    this.updateCounts(this.currentModalPostId, data.new_count);
+                }
+            } else {
+                alert('Failed to delete');
+                if (item) item.style.opacity = '1';
+            }
+        } catch (e) {
+            console.error(e);
+            if (item) item.style.opacity = '1';
+        }
+    },
+
+    buildCommentElement(data) {
+        const div = document.createElement('div');
+        div.className = 'd-flex align-items-start mb-3 comment-item-modal fade-in';
+        // We pass 'this' to onclick to refer to the global scope usually, 
+        // but here we are inside an object. We need to attach the function globally or use event delegation for delete too.
+        // Let's use inline onclick pointing to a global wrapper OR upgrade delegation.
+        // EASIER: Global wrapper.
+
+        const deleteBtn = data.can_delete ?
+            `<button class="btn btn-link text-secondary p-0 ms-2 small" onclick="CommentSystem.deleteComment(${data.id}, this)" title="Delete">
+                <i class="bi bi-trash" style="font-size: 0.8rem;"></i>
+             </button>` : '';
+
+        div.innerHTML = `
+            <a href="/user/profile.php?username=${data.username}">
+                <img src="${data.profile_pic}" class="rounded-circle me-3 border" width="36" height="36" style="object-fit:cover;">
+            </a>
+            <div class="flex-grow-1">
+                <div class="d-inline-block bg-light rounded-3 px-3 py-2">
+                    <a href="/user/profile.php?username=${data.username}" class="fw-bold text-dark text-decoration-none me-1 small">${data.username}</a>
+                    <span class="text-dark small">${data.comment}</span>
+                </div>
+                <div class="d-flex align-items-center mt-1 ms-1">
+                     <span class="text-muted small" style="font-size:0.7rem;">${data.time_ago}</span>
+                     ${deleteBtn}
+                </div>
+            </div>
+        `;
+        return div;
+    },
+
+    updateCounts(postId, newCount) {
+        // Feed Link
+        const link = document.querySelector(`.card-feed[data-post-id="${postId}"] .view-all-link`);
+        const container = document.getElementById(`post-comments-section-${postId}`);
+
+        if (newCount > 2) {
+            if (link) {
+                link.innerText = `View all ${newCount} comments`;
+            } else if (container) {
+                // Create it
+                const newLink = document.createElement('a');
+                newLink.href = '#';
+                newLink.className = 'text-secondary small fw-medium text-decoration-none mb-2 d-block view-all-link';
+                newLink.setAttribute('data-action', 'view-all-comments');
+                newLink.setAttribute('data-post-id', postId);
+                newLink.innerText = `View all ${newCount} comments`;
+                container.prepend(newLink);
             }
         } else {
-            throw new Error(data.message || "API Error");
-        }
-    } catch (e) {
-        console.error("Load Comments Error:", e);
-        // Ensure Spinner is GONE and error shown
-        list.innerHTML = `<div class="text-center text-danger mt-5">
-                            <div>Failed to load comments</div>
-                            <small class="text-muted">${e.message}</small>
-                          </div>`;
-    }
-}
-
-async function submitModalComment(postId) {
-    const input = document.getElementById('modalCommentInput');
-    const btn = document.querySelector('#modalCommentForm button');
-    const text = input.value.trim();
-    if (!text) return;
-
-    // Loading State
-    input.disabled = true;
-    if (btn) {
-        btn.disabled = true;
-        var originalBtnText = btn.innerText;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-    }
-
-    try {
-        const formData = new FormData();
-        formData.append('post_id', postId);
-        formData.append('comment', text);
-
-        const res = await fetch('/api/comment.php', {
-            method: 'POST',
-            body: formData
-        });
-        const data = await res.json();
-
-        if (data.status === 'success') {
-            input.value = '';
-            const list = document.getElementById('modalCommentsList');
-            // Remove empty state
-            if (list.querySelector('.text-center')) list.innerHTML = '';
-
-            // Append new comment
-            list.appendChild(createModalCommentItem(data.data)); // data.data is the new comment object
-            list.scrollTop = list.scrollHeight;
-        } else {
-            alert(data.message || 'Error posting.');
-        }
-    } catch (e) {
-        console.error(e);
-        alert('Failed to post comment. Check connection.');
-    } finally {
-        input.disabled = false;
-        input.focus();
-        if (btn) {
-            btn.innerHTML = originalBtnText || 'Post';
-            btn.disabled = true; // Input is empty now
+            if (link) link.remove();
         }
     }
-}
+};
 
-function createModalCommentItem(data) {
-    const div = document.createElement('div');
-    div.className = 'd-flex align-items-start mb-3 comment-item-modal';
-    div.innerHTML = `
-        <a href="/user/profile.php?username=${data.username}">
-            <img src="${data.profile_pic}" class="rounded-circle me-3" width="32" height="32" style="object-fit:cover;">
-        </a>
-        <div>
-            <div class="d-inline-block">
-                <a href="/user/profile.php?username=${data.username}" class="fw-bold text-dark text-decoration-none me-1" style="font-size:0.9rem;">${data.username}</a>
-                <span class="text-dark" style="font-size:0.9rem;">${data.comment}</span>
-            </div>
-            <div class="text-muted small mt-1" style="font-size:0.75rem;">${data.time_ago}</div>
-        </div>
-    `;
-    return div;
-}
+// Expose to window for inline onclicks if needed (though we prefer delegation)
+window.CommentSystem = CommentSystem;
